@@ -1,6 +1,6 @@
 --- a/scripts/vaultindex.py
 +++ b/scripts/vaultindex.py
-@@ -14,7 +14,10 @@
+@@ -14,7 +14,11 @@
  ORDNER = ["10-wissen", "20-projekte", "TASKS.md", "INDEX.md"]
  CHUNK = 900
  K_RRF = 60
@@ -9,10 +9,11 @@
 +# Fuellwoerter verwaessern BM25 (Treffer auf "der/die/und"); Bedeutung uebernimmt der Vektor.
 +STOPP = set("der die das den dem des ein eine einer eines und oder aber ist sind war wird werden hat haben mit von zu zum zur im in auf an fuer für wie was wer wo welche welcher welches bei nach aus es sich nicht auch noch nur man ich wir du er sie als dass".split())
 +W_BM25 = 0.8   # Gewicht Stichwortsuche in der Fusion (Vektor = 1.0); Modell: deutschsprachig, kleiner/englisch = minishlab/potion-base-8M
++W_TITEL = 0.6  # Zusatzgewicht fuer Treffer im Titel (kurze Notizen gegen lange Texte)
  
  def frontmatter(text):
      fm, body = {}, text
-@@ -43,8 +46,8 @@
+@@ -43,8 +47,8 @@
      return parts or [("", "")]
  
  class Index:
@@ -23,7 +24,7 @@
          self.db = sqlite3.connect(self.db_path, check_same_thread=False); self.db.execute("PRAGMA journal_mode=WAL")
          self.lock = __import__("threading").Lock()
          self.vec = None; self.model = None
-@@ -115,19 +118,27 @@
+@@ -115,19 +119,37 @@
              if self.vec: c.execute("DELETE FROM chunks_vec WHERE id=?", (i,))
          c.execute("DELETE FROM chunks WHERE path=?", (rel,)); c.execute("DELETE FROM docs WHERE path=?", (rel,))
  
@@ -47,6 +48,16 @@
          except sqlite3.OperationalError: bm = []
 -        for i, cid in enumerate(bm): ranks[cid] = ranks.get(cid, 0) + 1 / (K_RRF + i + 1)
 +        for i, cid in enumerate(bm): ranks[cid] = ranks.get(cid, 0) + W_BM25 / (K_RRF + i + 1)
++        # Treffer im Titel bekommen eine eigene Rangliste. Sonst verliert eine kurze Notiz
++        # ("Sascha wohnt in Krefeld") gegen laengere Texte, in denen dasselbe Wort nur
++        # nebenbei vorkommt (z. B. in einer URL) - bei Gleichstand entschied bisher der Zufall.
++        try:
++            tq = "title : (" + qf + ")"
++            tsql = "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?%s LIMIT %d" % (" AND path LIKE ?" if like else "", 60 if like else 30)
++            ti = [r[0] for r in c.execute(tsql, (tq, like) if like else (tq,))]
++            for i, cid in enumerate(ti): ranks[cid] = ranks.get(cid, 0) + W_TITEL / (K_RRF + i + 1)
++        except sqlite3.OperationalError:
++            pass
          if self.vec:
              e = json.dumps(self.model.encode([q])[0].tolist())
 -            vs = [r[0] for r in c.execute("SELECT id FROM chunks_vec WHERE emb MATCH ? AND k = 30 ORDER BY distance", (e,))]
