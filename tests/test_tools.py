@@ -7,6 +7,11 @@ from mcp.client.streamable_http import streamablehttp_client
 
 URL = "http://100.71.9.93:8798/mcp"
 
+# Der Test schreibt nur, wenn er ausdruecklich dazu aufgefordert wird.
+# Sonst legt jeder Pruefaufruf eine echte Erinnerung im Vault ab (schon einmal passiert).
+SCHREIBEN = "--schreiben" in sys.argv
+PROJEKT = "pruefung"
+
 
 def zeig(x):
     try:
@@ -23,6 +28,12 @@ async def main():
             print("TOOLS:", [t.name for t in tools.tools])
             if len(sys.argv) > 1 and sys.argv[1] == "nurliste":
                 return
+            if not SCHREIBEN:
+                print("HINWEIS: nur gelesen. Schreibprobe mit --schreiben "
+                      "(legt eine Notiz unter 10-wissen/gedaechtnis/pruefung/ an).")
+                res = await s.call_tool("memory_stats", {})
+                print("STATS:", zeig([c.text for c in res.content]))
+                return
 
             res = await s.call_tool(
                 "memory_remember",
@@ -32,7 +43,7 @@ async def main():
                     "10-wissen/gedaechtnis/<projekt>/. Eigener Index, damit second-brain-mcp unberuehrt bleibt.",
                     "title": "Aufbau des Agenten-Gedaechtnisses",
                     "category": "architecture",
-                    "project": "agenten-gedaechtnis",
+                    "project": PROJEKT,
                     "tags": ["mcp", "vps", "obsidian", "gedaechtnis"],
                     "author": "opencode",
                 },
