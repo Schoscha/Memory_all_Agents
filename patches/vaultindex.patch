@@ -1,0 +1,60 @@
+--- a/scripts/vaultindex.py
++++ b/scripts/vaultindex.py
+@@ -14,7 +14,10 @@
+ ORDNER = ["10-wissen", "20-projekte", "TASKS.md", "INDEX.md"]
+ CHUNK = 900
+ K_RRF = 60
+-MODEL = "minishlab/potion-multilingual-128M"   # deutschsprachig; kleiner/englisch: minishlab/potion-base-8M
++MODEL = "minishlab/potion-multilingual-128M"
++# Fuellwoerter verwaessern BM25 (Treffer auf "der/die/und"); Bedeutung uebernimmt der Vektor.
++STOPP = set("der die das den dem des ein eine einer eines und oder aber ist sind war wird werden hat haben mit von zu zum zur im in auf an fuer für wie was wer wo welche welcher welches bei nach aus es sich nicht auch noch nur man ich wir du er sie als dass".split())
++W_BM25 = 0.8   # Gewicht Stichwortsuche in der Fusion (Vektor = 1.0); Modell: deutschsprachig, kleiner/englisch = minishlab/potion-base-8M
+ 
+ def frontmatter(text):
+     fm, body = {}, text
+@@ -43,8 +46,8 @@
+     return parts or [("", "")]
+ 
+ class Index:
+-    def __init__(self, vault):
+-        self.vault = Path(vault); self.db_path = self.vault / ".vault-index.sqlite"
++    def __init__(self, vault, db_path=None):
++        self.vault = Path(vault); self.db_path = Path(db_path) if db_path else self.vault / ".vault-index.sqlite"
+         self.db = sqlite3.connect(self.db_path, check_same_thread=False); self.db.execute("PRAGMA journal_mode=WAL")
+         self.lock = __import__("threading").Lock()
+         self.vec = None; self.model = None
+@@ -115,19 +118,27 @@
+             if self.vec: c.execute("DELETE FROM chunks_vec WHERE id=?", (i,))
+         c.execute("DELETE FROM chunks WHERE path=?", (rel,)); c.execute("DELETE FROM docs WHERE path=?", (rel,))
+ 
+-    def search(self, q, limit=8):
+-        with self.lock: return self._search(q, limit)
++    def search(self, q, limit=8, prefix=None):
++        """prefix: optional nur Pfade, die so beginnen (z. B. "10-wissen/gedaechtnis/")."""
++        with self.lock: return self._search(q, limit, prefix)
+ 
+-    def _search(self, q, limit):
++    def _search(self, q, limit, prefix=None):
+         c = self.db; ranks = {}
+-        qf = " OR ".join(f'"{w}"' for w in re.findall(r"\w+", q)) or '""'
++        worte = [w for w in re.findall(r"\w+", q) if w.lower() not in STOPP] or re.findall(r"\w+", q)
++        qf = " OR ".join(f'"{w}"' for w in worte) or '""'
++        like = (prefix + "%") if prefix else None
++        sql = "SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?%s ORDER BY bm25(chunks_fts, 5.0, 3.0, 4.0, 2.0) LIMIT %d" % (" AND path LIKE ?" if like else "", 60 if like else 30)
+         try:
+-            bm = [r[0] for r in c.execute("SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts, 5.0, 3.0, 4.0, 2.0) LIMIT 30", (qf,))]
++            bm = [r[0] for r in c.execute(sql, (qf, like) if like else (qf,))]
+         except sqlite3.OperationalError: bm = []
+-        for i, cid in enumerate(bm): ranks[cid] = ranks.get(cid, 0) + 1 / (K_RRF + i + 1)
++        for i, cid in enumerate(bm): ranks[cid] = ranks.get(cid, 0) + W_BM25 / (K_RRF + i + 1)
+         if self.vec:
+             e = json.dumps(self.model.encode([q])[0].tolist())
+-            vs = [r[0] for r in c.execute("SELECT id FROM chunks_vec WHERE emb MATCH ? AND k = 30 ORDER BY distance", (e,))]
++            k = 400 if like else 30
++            vs = [r[0] for r in c.execute("SELECT id FROM chunks_vec WHERE emb MATCH ? AND k = %d ORDER BY distance" % k, (e,))]
++            if like:
++                erlaubt = {r[0] for r in c.execute("SELECT id FROM chunks WHERE path LIKE ?", (like,))}
++                vs = [i for i in vs if i in erlaubt]
+             for i, cid in enumerate(vs): ranks[cid] = ranks.get(cid, 0) + 1 / (K_RRF + i + 1)
+         out, seen_paths = [], set()
+         for cid, score in sorted(ranks.items(), key=lambda x: -x[1]):

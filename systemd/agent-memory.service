@@ -1,0 +1,25 @@
+# Gemeinsames Gedaechtnis aller Agenten (Claude, Hermes, OpenCode) ueber dem Obsidian-Vault.
+# Lauscht nur im Tailnet auf 100.71.9.93:8798 - kein 0.0.0.0, kein Zugriff aus dem Internet.
+# Ablage der Erinnerungen: /root/Second-Brain/10-wissen/gedaechtnis/<projekt>/*.md
+# Eigener Index (.agent-memory-index.sqlite) mit Vektorsuche, damit second-brain-mcp (8796) unberuehrt bleibt.
+[Unit]
+Description=Agenten-Gedaechtnis MCP (gemeinsam, Tailnet 100.71.9.93:8798)
+Documentation=file:/opt/agent-memory/README.md
+After=network-online.target tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+WorkingDirectory=/root/Second-Brain
+Environment=HF_HOME=/opt/agent-memory/modelle
+Environment=HF_HUB_DISABLE_TELEMETRY=1
+ExecStart=/opt/agent-memory/venv/bin/python /opt/agent-memory/memory_server.py --http 100.71.9.93 8798
+Restart=on-failure
+RestartSec=10
+Nice=5
+MemoryMax=3G
+# Schreiben nur in Vault und eigenem Ordner
+ProtectSystem=full
+ReadWritePaths=/root/Second-Brain /opt/agent-memory
+
+[Install]
+WantedBy=multi-user.target

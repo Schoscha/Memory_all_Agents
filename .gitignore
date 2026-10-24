@@ -1,0 +1,28 @@
+# venv und Modell gehoeren nicht ins Repo
+venv/
+modelle/
+__pycache__/
+*.pyc
+*.pyo
+
+# Index und Sicherungen
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.bak-*
+
+# eigene Notizen / Wegwerfskripte
+notizen.md
+
+# Wegwerfskripte aus der Bau-Sitzung (bleiben auf der Platte, gehoeren nicht ins Repo)
+diag.py
+final_check.py
+nutzen.py
+test2.py
+test3.py
+test4.py
+# Originale liegen jetzt in tests/ und tools/
+t_index.py
+test_mcp.py
+test5.py
+test_sb.py
